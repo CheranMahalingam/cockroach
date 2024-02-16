@@ -221,6 +221,18 @@ var (
 		Measurement: "Time",
 		Help:        "Weighted time spent reading from or writing to to all disks since this process started (as reported by the OS)",
 	}
+	metaHostDiskMaxReadBytes = metric.Metadata{
+		Name:        "sys.host.disk.maxread.bytes",
+		Unit:        metric.Unit_BYTES,
+		Measurement: "Bytes",
+		Help:        "Bytes read from all disks since this process started (as reported by the OS)",
+	}
+	metaHostDiskMaxWriteBytes = metric.Metadata{
+		Name:        "sys.host.disk.maxwrite.bytes",
+		Unit:        metric.Unit_BYTES,
+		Measurement: "Bytes",
+		Help:        "Bytes written to all disks since this process started (as reported by the OS)",
+	}
 	metaHostIopsInProgress = metric.Metadata{
 		Name:        "sys.host.disk.iopsinprogress",
 		Unit:        metric.Unit_COUNT,
@@ -320,6 +332,13 @@ type RuntimeStatSampler struct {
 		runnableSum float64
 	}
 
+	diskSampleAggregate struct {
+		maxBytesRead    int64
+		maxBytesWritten int64
+		// Used to compute derivative statistics.
+		prevStats DiskStats
+	}
+
 	initialDiskCounters DiskStats
 	initialNetCounters  net.IOCountersStat
 
@@ -362,6 +381,8 @@ type RuntimeStatSampler struct {
 	HostDiskWriteTime      *metric.Gauge
 	HostDiskIOTime         *metric.Gauge
 	HostDiskWeightedIOTime *metric.Gauge
+	HostDiskMaxReadBytes   *metric.Gauge
+	HostDiskMaxWriteBytes  *metric.Gauge
 	IopsInProgress         *metric.Gauge
 	HostNetRecvBytes       *metric.Gauge
 	HostNetRecvPackets     *metric.Gauge
@@ -444,6 +465,8 @@ func NewRuntimeStatSampler(ctx context.Context, clock hlc.WallClock) *RuntimeSta
 		HostDiskWriteTime:      metric.NewGauge(metaHostDiskWriteTime),
 		HostDiskIOTime:         metric.NewGauge(metaHostDiskIOTime),
 		HostDiskWeightedIOTime: metric.NewGauge(metaHostDiskWeightedIOTime),
+		HostDiskMaxReadBytes:   metric.NewGauge(metaHostDiskMaxReadBytes),
+		HostDiskMaxWriteBytes:  metric.NewGauge(metaHostDiskMaxWriteBytes),
 		IopsInProgress:         metric.NewGauge(metaHostIopsInProgress),
 		HostNetRecvBytes:       metric.NewGauge(metaHostNetRecvBytes),
 		HostNetRecvPackets:     metric.NewGauge(metaHostNetRecvPackets),
@@ -567,9 +590,15 @@ func (rsr *RuntimeStatSampler) SampleEnvironment(
 		rsr.HostDiskWriteBytes.Update(diskCounters.WriteBytes)
 		rsr.HostDiskWriteCount.Update(diskCounters.writeCount)
 		rsr.HostDiskWriteTime.Update(int64(diskCounters.writeTime))
+		rsr.HostDiskMaxReadBytes.Update(rsr.diskSampleAggregate.maxBytesRead)
+		rsr.HostDiskMaxWriteBytes.Update(rsr.diskSampleAggregate.maxBytesWritten)
 		rsr.HostDiskIOTime.Update(int64(diskCounters.ioTime))
 		rsr.HostDiskWeightedIOTime.Update(int64(diskCounters.weightedIOTime))
 		rsr.IopsInProgress.Update(diskCounters.iopsInProgress)
+
+		// Reset aggregated maximums before next sampling window.
+		rsr.diskSampleAggregate.maxBytesRead = 0
+		rsr.diskSampleAggregate.maxBytesWritten = 0
 	}
 
 	var deltaNet net.IOCountersStat
@@ -683,6 +712,27 @@ func (rsr *RuntimeStatSampler) SampleEnvironment(
 	totalMem, _, _ := GetTotalMemoryWithoutLogging()
 	rsr.TotalMemBytes.Update(totalMem)
 	rsr.Uptime.Update((now - rsr.startTimeNanos) / 1e9)
+}
+
+// SampleDiskBandwidthStats queries the runtime system for disk bandwidth metrics
+// and accumulates the results to provide disk bandwidth rolling maximums to be
+// consumed by the time series systems.
+//
+// This method should be called periodically by a higher level system to accurately
+// track disk bandwidth statistics. It should also be called more frequently than
+// SampleEnvironment to build a rolling maximum.
+func (rsr *RuntimeStatSampler) SampleDiskBandwidthStats(ctx context.Context) {
+	diskCounters, err := getSummedDiskCounters(ctx)
+	if err != nil {
+		log.Ops.Warningf(ctx, "problem fetching disk stats: %s; disk stats will be empty.", err)
+		return
+	}
+	deltaDisk := diskCounters
+	subtractDiskCounters(&deltaDisk, rsr.diskSampleAggregate.prevStats)
+
+	rsr.diskSampleAggregate.maxBytesRead = max(rsr.diskSampleAggregate.maxBytesRead, deltaDisk.ReadBytes)
+	rsr.diskSampleAggregate.maxBytesWritten = max(rsr.diskSampleAggregate.maxBytesWritten, deltaDisk.WriteBytes)
+	rsr.diskSampleAggregate.prevStats = deltaDisk
 }
 
 // GetCPUCombinedPercentNorm is part of the rowexec.RuntimeStats interface.

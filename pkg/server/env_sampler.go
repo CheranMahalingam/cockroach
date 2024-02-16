@@ -31,15 +31,16 @@ import (
 )
 
 type sampleEnvironmentCfg struct {
-	st                   *cluster.Settings
-	stopper              *stop.Stopper
-	minSampleInterval    time.Duration
-	goroutineDumpDirName string
-	heapProfileDirName   string
-	cpuProfileDirName    string
-	runtime              *status.RuntimeStatSampler
-	sessionRegistry      *sql.SessionRegistry
-	rootMemMonitor       *mon.BytesMonitor
+	st                     *cluster.Settings
+	stopper                *stop.Stopper
+	minSampleInterval      time.Duration
+	highFreqSampleInterval time.Duration
+	goroutineDumpDirName   string
+	heapProfileDirName     string
+	cpuProfileDirName      string
+	runtime                *status.RuntimeStatSampler
+	sessionRegistry        *sql.SessionRegistry
+	rootMemMonitor         *mon.BytesMonitor
 }
 
 // startSampleEnvironment starts a periodic loop that samples the environment and,
@@ -56,15 +57,16 @@ func startSampleEnvironment(
 	rootMemMonitor *mon.BytesMonitor,
 ) error {
 	cfg := sampleEnvironmentCfg{
-		st:                   settings,
-		stopper:              stopper,
-		minSampleInterval:    base.DefaultMetricsSampleInterval,
-		goroutineDumpDirName: goroutineDumpDirName,
-		heapProfileDirName:   heapProfileDirName,
-		cpuProfileDirName:    cpuProfileDirName,
-		runtime:              runtimeSampler,
-		sessionRegistry:      sessionRegistry,
-		rootMemMonitor:       rootMemMonitor,
+		st:                     settings,
+		stopper:                stopper,
+		minSampleInterval:      base.DefaultMetricsSampleInterval,
+		highFreqSampleInterval: time.Second,
+		goroutineDumpDirName:   goroutineDumpDirName,
+		heapProfileDirName:     heapProfileDirName,
+		cpuProfileDirName:      cpuProfileDirName,
+		runtime:                runtimeSampler,
+		sessionRegistry:        sessionRegistry,
+		rootMemMonitor:         rootMemMonitor,
 	}
 	// Immediately record summaries once on server startup.
 
@@ -151,10 +153,19 @@ func startSampleEnvironment(
 			defer timer.Stop()
 			timer.Reset(cfg.minSampleInterval)
 
+			highFreqTimer := timeutil.NewTimer()
+			defer highFreqTimer.Stop()
+			highFreqTimer.Reset(cfg.highFreqSampleInterval)
+
 			for {
 				select {
 				case <-cfg.stopper.ShouldQuiesce():
 					return
+				case <-highFreqTimer.C:
+					highFreqTimer.Read = true
+					highFreqTimer.Reset(cfg.highFreqSampleInterval)
+
+					cfg.runtime.SampleDiskBandwidthStats(ctx)
 				case <-timer.C:
 					timer.Read = true
 					timer.Reset(cfg.minSampleInterval)
