@@ -32,6 +32,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/server/status/statuspb"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/storage"
+	"github.com/cockroachdb/cockroach/pkg/storage/disk"
 	"github.com/cockroachdb/cockroach/pkg/testutils"
 	"github.com/cockroachdb/cockroach/pkg/testutils/serverutils"
 	"github.com/cockroachdb/cockroach/pkg/util/admission"
@@ -41,6 +42,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/metric"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/pebble/vfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -974,12 +976,14 @@ func TestDiskStatsMap(t *testing.T) {
 				// ProvisionedBandwidth is 0 so the cluster setting will be used.
 				ProvisionedBandwidth: 0,
 			},
+			Path: "foo",
 		},
 		{
 			ProvisionedRateSpec: base.ProvisionedRateSpec{
 				DiskName:             "bar",
 				ProvisionedBandwidth: 200,
 			},
+			Path: "bar",
 		},
 	}
 	// Engines.
@@ -999,38 +1003,42 @@ func TestDiskStatsMap(t *testing.T) {
 		require.NoError(t, storage.MVCCBlindPutProto(ctx, engines[i], keys.StoreIdentKey(),
 			hlc.Timestamp{}, &ident, storage.MVCCWriteOptions{}))
 	}
+	fs := vfs.Default
+	for _, storeSpec := range specs {
+		_, err := fs.Create(storeSpec.Path)
+		require.NoError(t, err)
+	}
 	var dsm diskStatsMap
+	defer dsm.closeDiskMonitors()
 	clusterProvisionedBW := int64(150)
 
 	// diskStatsMap contains nothing, so does not populate anything.
-	stats, err := dsm.tryPopulateAdmissionDiskStats(ctx, clusterProvisionedBW, nil)
+	stats, err := dsm.tryPopulateAdmissionDiskStats(clusterProvisionedBW, nil)
 	require.NoError(t, err)
 	require.Equal(t, 0, len(stats))
 
+	diskManager := disk.NewMonitorManager(fs)
 	// diskStatsMap initialized with these two stores.
-	require.NoError(t, dsm.initDiskStatsMap(specs, engines))
+	require.NoError(t, dsm.initDiskStatsMap(specs, engines, diskManager))
 
 	// diskStatsFunc returns stats for these two stores, and an unknown store.
-	diskStatsFunc := func(context.Context) ([]status.DiskStats, error) {
-		return []status.DiskStats{
-			{
-				Name:       "baz",
+	diskStatsFunc := func(map[string]disk.Monitor) (map[string]status.DiskStats, error) {
+		return map[string]status.DiskStats{
+			"baz": {
 				ReadBytes:  100,
 				WriteBytes: 200,
 			},
-			{
-				Name:       "foo",
+			"foo": {
 				ReadBytes:  500,
 				WriteBytes: 1000,
 			},
-			{
-				Name:       "bar",
+			"bar": {
 				ReadBytes:  2000,
 				WriteBytes: 2500,
 			},
 		}, nil
 	}
-	stats, err = dsm.tryPopulateAdmissionDiskStats(ctx, clusterProvisionedBW, diskStatsFunc)
+	stats, err = dsm.tryPopulateAdmissionDiskStats(clusterProvisionedBW, diskStatsFunc)
 	require.NoError(t, err)
 	// The stats for the two stores are as expected.
 	require.Equal(t, 2, len(stats))
@@ -1052,16 +1060,15 @@ func TestDiskStatsMap(t *testing.T) {
 	}
 
 	// disk stats are only retrieved for "foo".
-	diskStatsFunc = func(context.Context) ([]status.DiskStats, error) {
-		return []status.DiskStats{
-			{
-				Name:       "foo",
+	diskStatsFunc = func(map[string]disk.Monitor) (map[string]status.DiskStats, error) {
+		return map[string]status.DiskStats{
+			"foo": {
 				ReadBytes:  3500,
 				WriteBytes: 4500,
 			},
 		}, nil
 	}
-	stats, err = dsm.tryPopulateAdmissionDiskStats(ctx, clusterProvisionedBW, diskStatsFunc)
+	stats, err = dsm.tryPopulateAdmissionDiskStats(clusterProvisionedBW, diskStatsFunc)
 	require.NoError(t, err)
 	require.Equal(t, 2, len(stats))
 	for i := range engineIDs {
