@@ -17,6 +17,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/cloud"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
+	"github.com/cockroachdb/cockroach/pkg/storage/disk"
 	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/vfs"
@@ -220,6 +221,14 @@ func PebbleOptions(pebbleOptions string, parseHooks *pebble.ParseHooks) ConfigOp
 func EncryptionAtRest(encryptionOptions []byte) ConfigOption {
 	return func(cfg *engineConfig) error {
 		cfg.EncryptionOptions = encryptionOptions
+		return nil
+	}
+}
+
+// DiskMonitor configures a monitor to track disk stats.
+func DiskMonitor(diskMonitor *disk.Monitor) ConfigOption {
+	return func(cfg *engineConfig) error {
+		cfg.diskMonitor = diskMonitor
 		return nil
 	}
 }

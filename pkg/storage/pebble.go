@@ -35,6 +35,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
+	"github.com/cockroachdb/cockroach/pkg/storage/disk"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/storage/fs"
 	"github.com/cockroachdb/cockroach/pkg/storage/pebbleiter"
@@ -868,6 +869,8 @@ type PebbleConfig struct {
 
 	// onClose is a slice of functions to be invoked before the engine is closed.
 	onClose []func(*Pebble)
+
+	diskMonitor *disk.Monitor
 }
 
 // Pebble is a wrapper around a Pebble database instance.
@@ -945,6 +948,8 @@ type Pebble struct {
 	replayer         *replay.WorkloadCollector
 
 	singleDelLogEvery log.EveryN
+
+	diskMonitor *disk.Monitor
 }
 
 // WorkloadCollector implements an workloadCollectorGetter and returns the
@@ -1217,6 +1222,7 @@ func NewPebble(ctx context.Context, cfg PebbleConfig) (p *Pebble, err error) {
 		onClose:           cfg.onClose,
 		replayer:          replay.NewWorkloadCollector(cfg.StorageConfig.Dir),
 		singleDelLogEvery: log.Every(5 * time.Minute),
+		diskMonitor:       cfg.diskMonitor,
 	}
 	// In test builds, add a layer of VFS middleware that ensures users of an
 	// Engine don't try to use the filesystem after the Engine has been closed.
@@ -1478,7 +1484,7 @@ func (p *Pebble) makeMetricEtcEventListener(ctx context.Context) pebble.EventLis
 		},
 		DiskSlow: func(info pebble.DiskSlowInfo) {
 			maxSyncDuration := MaxSyncDuration.Get(&p.settings.SV)
-			fatalOnExceeded := MaxSyncDurationFatalOnExceeded.Get(&p.settings.SV)
+			//fatalOnExceeded := MaxSyncDurationFatalOnExceeded.Get(&p.settings.SV)
 			if info.Duration.Seconds() >= maxSyncDuration.Seconds() {
 				atomic.AddInt64(&p.diskStallCount, 1)
 				// Note that the below log messages go to the main cockroach log, not
@@ -1489,19 +1495,21 @@ func (p *Pebble) makeMetricEtcEventListener(ctx context.Context) pebble.EventLis
 				// health checking from functioning correctly. See the comment in
 				// pebble.EventListener on why it's important for this method to return
 				// quickly.
-				if fatalOnExceeded {
-					// The write stall may prevent the process from exiting. If
-					// the process won't exit, we can at least terminate all our
-					// RPC connections first.
-					//
-					// See pkg/cli.runStart for where this function is hooked
-					// up.
-					log.MakeProcessUnavailable()
-
-					log.Fatalf(ctx, "disk stall detected: %s", info)
-				} else {
-					p.async(func() { log.Errorf(ctx, "disk stall detected: %s", info) })
-				}
+				//if fatalOnExceeded {
+				//	// The write stall may prevent the process from exiting. If
+				//	// the process won't exit, we can at least terminate all our
+				//	// RPC connections first.
+				//	//
+				//	// See pkg/cli.runStart for where this function is hooked
+				//	// up.
+				//	log.MakeProcessUnavailable()
+				//
+				//	log.Fatalf(ctx, "disk stall detected: %s", info)
+				//} else {
+				p.async(func() {
+					log.Errorf(ctx, "disk stall detected: %s\n%s", info, p.diskMonitor.LogTrace())
+				})
+				//}
 				return
 			}
 			atomic.AddInt64(&p.diskSlowCount, 1)

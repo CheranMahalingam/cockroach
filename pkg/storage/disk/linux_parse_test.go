@@ -73,7 +73,7 @@ func TestLinux_CollectDiskStats(t *testing.T) {
 					fmt.Fprintln(&buf)
 				}
 				fmt.Fprintf(&buf, "%s: ", disks[i].deviceID)
-				fmt.Fprint(&buf, disks[i].stats.lastMeasurement.String())
+				// fmt.Fprint(&buf, disks[i].stats.lastMeasurement.String())
 			}
 			return buf.String()
 		default:

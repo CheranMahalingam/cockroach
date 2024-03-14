@@ -82,7 +82,13 @@ type Stats struct {
 
 // String implements fmt.Stringer.
 func (s *Stats) String() string {
-	return fmt.Sprintf("name: %s, r: (%d, %d, %d, %s), w: (%d, %d, %d, %s), (now: %d, c: %s, w: %s), d: (%d, %d, %d, %s), f: (%d, %s)",
+	// return fmt.Sprintf("name: %s, r: (%d, %d, %d, %s), w: (%d, %d, %d, %s), (now: %d, c: %s, w: %s), d: (%d, %d, %d, %s), f: (%d, %s)",
+	// 	s.DeviceName, s.ReadsCount, s.ReadsMerged, s.ReadsSectors, s.ReadsDuration,
+	// 	s.WritesCount, s.WritesMerged, s.WritesSectors, s.WritesDuration,
+	// 	s.InProgressCount, s.CumulativeDuration, s.WeightedIODuration,
+	// 	s.DiscardsCount, s.DiscardsMerged, s.DiscardsSectors, s.DiscardsDuration,
+	// 	s.FlushesCount, s.FlushesDuration)
+  return fmt.Sprintf("%s\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%s\t%d\t%s\t%s\t%d\t%d\t%d\t%s\t%d\t%s",
 		s.DeviceName, s.ReadsCount, s.ReadsMerged, s.ReadsSectors, s.ReadsDuration,
 		s.WritesCount, s.WritesMerged, s.WritesSectors, s.WritesDuration,
 		s.InProgressCount, s.CumulativeDuration, s.WeightedIODuration,
