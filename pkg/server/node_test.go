@@ -1007,9 +1007,9 @@ func TestDiskStatsMap(t *testing.T) {
 		require.NoError(t, storage.MVCCBlindPutProto(ctx, engines[i], keys.StoreIdentKey(),
 			hlc.Timestamp{}, &ident, storage.MVCCWriteOptions{}))
 	}
-	fs := vfs.Default
+	defaultFS := vfs.Default
 	for _, storeSpec := range specs {
-		_, err := fs.Create(storeSpec.Path)
+		_, err := defaultFS.Create(storeSpec.Path, fs.UnspecifiedWriteCategory)
 		require.NoError(t, err)
 	}
 	var dsm diskStatsMap
@@ -1021,7 +1021,7 @@ func TestDiskStatsMap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(stats))
 
-	diskManager := disk.NewMonitorManager(fs)
+	diskManager := disk.NewMonitorManager(defaultFS)
 	// diskStatsMap initialized with these two stores.
 	require.NoError(t, dsm.initDiskStatsMap(specs, engines, diskManager))
 
