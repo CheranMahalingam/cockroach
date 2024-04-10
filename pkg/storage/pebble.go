@@ -799,6 +799,12 @@ func DefaultPebbleOptions() *pebble.Options {
 		}
 		l.EnsureDefaults()
 	}
+	opts.AllocatorSizeClasses = []int{
+		16384,
+		20480, 24576, 28672, 32768,
+		40960, 49152, 57344, 65536,
+		81920, 98304, 114688, 131072,
+	}
 
 	return opts
 }

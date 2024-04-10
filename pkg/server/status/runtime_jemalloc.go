@@ -91,11 +91,11 @@ func init() {
 	getCgoMemStats = getJemallocStats
 }
 
-func getJemallocStats(ctx context.Context) (uint, uint, error) {
+func getJemallocStats(ctx context.Context) (uint, uint, uint, error) {
 	var js C.JemallocStats
 	// TODO(marc): should we panic here? Failure on fetching the stats may be a problem.
 	if _, err := C.jemalloc_get_stats(&js); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	if log.V(2) {
@@ -118,7 +118,7 @@ func getJemallocStats(ctx context.Context) (uint, uint, error) {
 		C.je_malloc_stats_print(nil, nil, nil)
 	}
 
-	return uint(js.Allocated), uint(js.Resident), nil
+	return uint(js.Allocated), uint(js.Metadata), uint(js.Resident), nil
 }
 
 // Used to force allocation in tests. 'import "C"' is not supported in tests.

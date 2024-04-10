@@ -100,6 +100,12 @@ var (
 		Measurement: "Memory",
 		Unit:        metric.Unit_BYTES,
 	}
+	metaCgoMetadataBytes = metric.Metadata{
+		Name:        "sys.cgo.metadatabytes",
+		Help:        "Current bytes of metadata allocated by cgo",
+		Measurement: "Memory",
+		Unit:        metric.Unit_BYTES,
+	}
 	metaCgoTotalBytes = metric.Metadata{
 		Name:        "sys.cgo.totalbytes",
 		Help:        "Total bytes of memory allocated by cgo, but not released",
@@ -327,7 +333,7 @@ var diskMetricsIgnoredDevices = envutil.EnvOrDefaultString("COCKROACH_DISK_METRI
 // allocated uint: bytes allocated by application
 // total     uint: total bytes requested from system
 // error           : any issues fetching stats. This should be a warning only.
-var getCgoMemStats func(context.Context) (uint, uint, error)
+var getCgoMemStats func(context.Context) (uint, uint, uint, error)
 
 // Estimated total CPU time goroutines spent performing GC tasks to assist the
 // GC and prevent it from falling behind the application. This metric is an
@@ -520,6 +526,7 @@ type RuntimeStatSampler struct {
 	GoHeapReleasedBytes      *metric.Gauge
 	GoTotalAllocBytes        *metric.Gauge
 	CgoAllocBytes            *metric.Gauge
+	CgoMetadataBytes         *metric.Gauge
 	CgoTotalBytes            *metric.Gauge
 	GcCount                  *metric.Gauge
 	GcPauseNS                *metric.Gauge
@@ -613,6 +620,7 @@ func NewRuntimeStatSampler(ctx context.Context, clock hlc.WallClock) *RuntimeSta
 		GoHeapReleasedBytes:      metric.NewGauge(metaGoHeapReleasedBytes),
 		GoTotalAllocBytes:        metric.NewGauge(metaGoTotalAllocBytes),
 		CgoAllocBytes:            metric.NewGauge(metaCgoAllocBytes),
+		CgoMetadataBytes:         metric.NewGauge(metaCgoMetadataBytes),
 		CgoTotalBytes:            metric.NewGauge(metaCgoTotalBytes),
 		GcCount:                  metric.NewGauge(metaGCCount),
 		GcPauseNS:                metric.NewGauge(metaGCPauseNS),
@@ -661,22 +669,24 @@ func NewRuntimeStatSampler(ctx context.Context, clock hlc.WallClock) *RuntimeSta
 type CGoMemStats struct {
 	// CGoAllocated represents allocated bytes.
 	CGoAllocatedBytes uint64
+	CGoMetadataBytes  uint64
 	// CGoTotal represents total bytes (allocated + metadata etc).
 	CGoTotalBytes uint64
 }
 
 // GetCGoMemStats collects non-Go memory statistics.
 func GetCGoMemStats(ctx context.Context) *CGoMemStats {
-	var cgoAllocated, cgoTotal uint
+	var cgoAllocated, cgoMetadata, cgoTotal uint
 	if getCgoMemStats != nil {
 		var err error
-		cgoAllocated, cgoTotal, err = getCgoMemStats(ctx)
+		cgoAllocated, cgoMetadata, cgoTotal, err = getCgoMemStats(ctx)
 		if err != nil {
 			log.Warningf(ctx, "problem fetching CGO memory stats: %s; CGO stats will be empty.", err)
 		}
 	}
 	return &CGoMemStats{
 		CGoAllocatedBytes: uint64(cgoAllocated),
+		CGoMetadataBytes:  uint64(cgoMetadata),
 		CGoTotalBytes:     uint64(cgoTotal),
 	}
 }
@@ -855,7 +865,11 @@ func (rsr *RuntimeStatSampler) SampleEnvironment(ctx context.Context, cs *CGoMem
 	rsr.CgoCalls.Update(numCgoCall)
 	rsr.Goroutines.Update(int64(numGoroutine))
 	rsr.RunnableGoroutinesPerCPU.Update(runnableAvg)
+	fmt.Printf("CGO A %d\n", cs.CGoAllocatedBytes)
+	fmt.Printf("CGO M %d\n", cs.CGoMetadataBytes)
+	fmt.Printf("CGO T %d\n", cs.CGoTotalBytes)
 	rsr.CgoAllocBytes.Update(int64(cs.CGoAllocatedBytes))
+	rsr.CgoMetadataBytes.Update(int64(cs.CGoMetadataBytes))
 	rsr.CgoTotalBytes.Update(int64(cs.CGoTotalBytes))
 	rsr.GcCount.Update(gc.NumGC)
 	rsr.GcPauseNS.Update(int64(gc.PauseTotal))
