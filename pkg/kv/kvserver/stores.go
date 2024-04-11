@@ -304,20 +304,10 @@ func (ls *Stores) updateBootstrapInfoLocked(bi *gossip.BootstrapInfo) error {
 }
 
 // RegisterDiskMonitors injects a monitor into each store to track an individual disk's stats.
-func (ls *Stores) RegisterDiskMonitors(
-	diskManager *disk.MonitorManager, diskPathToStore map[string]roachpb.StoreID,
-) error {
-	monitors := make(map[roachpb.StoreID]disk.Monitor)
-	for path, id := range diskPathToStore {
-		monitor, err := diskManager.Monitor(path)
-		if err != nil {
-			return err
-		}
-		monitors[id] = *monitor
-	}
+func (ls *Stores) RegisterDiskMonitors(diskMonitors map[roachpb.StoreID]disk.Monitor) error {
 	return ls.VisitStores(func(s *Store) error {
-		if monitor, ok := monitors[s.StoreID()]; ok {
-			s.diskMonitor = &monitor
+		if monitor, ok := diskMonitors[s.StoreID()]; ok {
+			s.diskMonitor = monitor.Clone()
 		}
 		return nil
 	})

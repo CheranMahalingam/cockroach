@@ -262,6 +262,14 @@ func (m *Monitor) IncrementalStats() StatsWindow {
 	return StatsWindow{stats}
 }
 
+// Clone returns a new monitor that monitors the same disk.
+func (m *Monitor) Clone() *Monitor {
+	m.manager.mu.Lock()
+	defer m.manager.mu.Unlock()
+	m.refCount++
+	return &Monitor{monitoredDisk: m.monitoredDisk}
+}
+
 func (m *Monitor) LogTrace() string {
 	return m.tracer.String()
 }
