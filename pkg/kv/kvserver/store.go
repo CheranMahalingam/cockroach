@@ -3475,11 +3475,16 @@ func (s *Store) computeMetrics(ctx context.Context) (m storage.Metrics, err erro
 
 	// Get disk stats for the disk associated with this store.
 	if s.diskMonitor != nil {
-		diskStats, err := s.diskMonitor.CumulativeStats()
-		if err != nil {
-			return m, err
+		//rollingStats := s.diskMonitor.IncrementalStats()
+		//s.metrics.updateDiskStats(rollingStats)
+		rollingStats := s.diskMonitor.IncrementalStats()
+		maxStats := rollingStats.Max()
+		cumulativeStats, _ := s.diskMonitor.CumulativeStats()
+		if len(rollingStats.Stats) > 0 {
+			fmt.Printf("WRITES %d %d\n", maxStats.BytesWritten()*10, cumulativeStats.BytesWritten()-rollingStats.Stats[0].BytesWritten())
+			fmt.Printf("READS %d %d\n", maxStats.BytesRead()*10, cumulativeStats.BytesRead()-rollingStats.Stats[0].BytesRead())
 		}
-		s.metrics.updateDiskStats(diskStats)
+		s.metrics.updateDiskStats(cumulativeStats, maxStats)
 	}
 
 	return m, nil
